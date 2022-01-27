@@ -6,6 +6,8 @@ DISCLAIMER: Not enough tested.
 
 TODO: Add documentation.
 
+Recommended to use together with [tokio-interruptible-future](https://crates.io/crates/tokio-interruptible-future).
+
 ```rust
 #[derive(Debug, PartialEq, Eq)]
 enum MyError {
