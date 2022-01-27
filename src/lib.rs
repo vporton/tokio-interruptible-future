@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use tokio::sync::Notify;
 
 #[derive(Debug, PartialEq, Eq)]
-struct InterruptError { }
+pub struct InterruptError { }
 
 impl InterruptError {
     #[allow(dead_code)]
@@ -26,7 +26,7 @@ impl fmt::Display for InterruptError {
 }
 
 #[async_trait]
-trait Interruptible {
+pub trait Interruptible {
     fn interrupt_notifier(&self) -> &Notify;
 
     fn interrupt(&self) {
