@@ -6,7 +6,7 @@ DISCLAIMER: Not enough tested.
 
 TODO: Add documentation.
 
-Recommended to use together with [tokio-interruptible-future](https://crates.io/crates/tokio-interruptible-future).
+Recommended to use together with [tokio-notify-drop](https://crates.io/crates/tokio-notify-drop).
 
 ```rust
 #[derive(Debug, PartialEq, Eq)]
