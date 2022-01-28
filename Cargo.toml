@@ -1,9 +1,9 @@
 [package]
 name = "tokio-interruptible-future"
-version = "0.9.4"
+version = "0.9.5"
 edition = "2021"
 description = "Easily interrupt async code in given check points. It's useful to interrupt threads/fibers."
-author = "Victor Porton"
+authors = ["Victor Porton"]
 license = "Apache-2.0"
 repository = "https://github.com/vporton/tokio-interruptible-future"
 
