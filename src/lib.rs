@@ -57,12 +57,25 @@ mod tests {
     use crate::{Interruptible, InterruptError};
 
     #[derive(Debug, PartialEq, Eq)]
+    struct AnotherError { }
+    impl AnotherError {
+        pub fn new() -> Self {
+            return Self { }
+        }
+    }
+    #[derive(Debug, PartialEq, Eq)]
     enum MyError {
         Interrupted(InterruptError),
+        Another(AnotherError)
     }
     impl From<InterruptError> for MyError {
         fn from(value: InterruptError) -> Self {
             Self::Interrupted(value)
+        }
+    }
+    impl From<AnotherError> for MyError {
+        fn from(value: AnotherError) -> Self {
+            Self::Another(value)
         }
     }
     struct Test {
@@ -80,7 +93,7 @@ mod tests {
             }
         }
         pub async fn f(&self) -> Result<(), MyError> {
-            self.interruptible/*::<(), MyError>*/(async {
+            self.interruptible(async {
                 loop {
                     self.interrupt(); // In real code called from another fiber or another thread.
                     self.check_for_interrupt::<MyError>().await?;
@@ -88,8 +101,14 @@ mod tests {
             }).await
         }
         pub async fn g(&self) -> Result<u8, MyError> {
-            self.interruptible::<u8, MyError>(async {
+            self.interruptible(async {
                 Ok(123)
+            }).await
+        }
+        #[allow(unused)]
+        pub async fn h(&self) -> Result<u8, MyError> {
+            self.interruptible(async {
+                Err(AnotherError::new().into())
             }).await
         }
     }
