@@ -4,9 +4,8 @@
 /// Easily interrupt async code in given check points. It's useful to interrupt threads/fibers.
 /// TODO: Documentation comments.
 
-use std::{fmt, future::Future};
+use std::{fmt, future::Future, sync::Arc};
 
-use async_trait::async_trait;
 use tokio::sync::Notify;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -25,36 +24,30 @@ impl fmt::Display for InterruptError {
     }
 }
 
-#[async_trait]
-pub trait Interruptible {
-    fn interrupt_notifier(&self) -> &Notify;
-
-    fn interrupt(&self) {
-        self.interrupt_notifier().notify_one();
+pub async fn interruptible<'a, T, E: From<InterruptError>>(
+    notifier: Arc<Notify>,
+    f: impl Future<Output = Result<T, E>> + Send + 'a
+) -> Result<T, E>
+{
+    tokio::select!{
+        r = f => r,
+        _ = notifier.notified() => Err(InterruptError::new().into()),
     }
+}
 
-    async fn check_for_interrupt<E: From<InterruptError>>(&self) -> Result<(), E> {
-        self.interrupt_notifier().notified().await;
-        Err(InterruptError::new().into())
-    }
-
-    async fn interruptible<'a, T, E: From<InterruptError>>(&self, f: impl Future<Output = Result<T, E>> + Send + 'a)
-        -> Result<T, E>
-    {
-        tokio::select!{
-            r = f => r,
-            Err(e) = self.check_for_interrupt() => Err(E::from(e)),
-        }
-    }
+pub async fn check_for_interrupt<E: From<InterruptError>>(notifier: Arc<Notify>) -> Result<(), E> {
+    //  interruptible::<(), E>(notifier, ready(Ok())).await // `E` cannot be sent between threads safely
+    interruptible(notifier, async || -> Result<(), E> { Ok(()) }()).await
 }
 
 /// TODO: More tests.
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use tokio::sync::Notify;
     use futures::executor::block_on;
 
-    use crate::{Interruptible, InterruptError};
+    use crate::{InterruptError, check_for_interrupt, interruptible};
 
     #[derive(Debug, PartialEq, Eq)]
     struct AnotherError { }
@@ -79,35 +72,43 @@ mod tests {
         }
     }
     struct Test {
-        interrupt_notifier: Notify,
-    }
-    impl Interruptible for Test {
-        fn interrupt_notifier(&self) -> &Notify {
-            &self.interrupt_notifier
-        }
     }
     impl Test {
         pub fn new() -> Self {
             Self {
-                interrupt_notifier: Notify::new()
             }
         }
-        pub async fn f(&self) -> Result<(), MyError> {
-            self.interruptible(async {
+        pub async fn f(self) -> Result<(), MyError> {
+            let interrupt_notifier = Arc::new(Notify::new()); // Arc::new(Notify::new());
+            interrupt_notifier.notify_one(); // In real code called from another fiber or another thread.
+
+            interruptible(interrupt_notifier.clone(), async move {
                 loop {
-                    self.interrupt(); // In real code called from another fiber or another thread.
-                    self.check_for_interrupt::<MyError>().await?;
+                    check_for_interrupt::<MyError>(interrupt_notifier.clone()).await?;
                 }
             }).await
         }
-        pub async fn g(&self) -> Result<u8, MyError> {
-            self.interruptible(async {
+        pub async fn f2(self) -> Result<(), MyError> {
+            let interrupt_notifier = Arc::new(Notify::new()); // Arc::new(Notify::new());
+
+            interruptible(interrupt_notifier.clone(), async move {
+                loop {
+                    interrupt_notifier.clone().notify_one(); // In real code called from another fiber or another thread.
+                    check_for_interrupt::<MyError>(interrupt_notifier.clone()).await?;
+                }
+            }).await
+        }
+        pub async fn g(self) -> Result<u8, MyError> {
+            let interrupt_notifier = Arc::new(Notify::new());
+
+            interruptible(interrupt_notifier.clone(), async move {
                 Ok(123)
             }).await
         }
-        #[allow(unused)]
-        pub async fn h(&self) -> Result<u8, MyError> {
-            self.interruptible(async {
+        pub async fn h(self) -> Result<u8, MyError> {
+            let interrupt_notifier = Arc::new(Notify::new());
+
+            interruptible(interrupt_notifier.clone(), async move {
                 Err(AnotherError::new().into())
             }).await
         }
@@ -121,14 +122,25 @@ mod tests {
                 Err(MyError::Interrupted(_)) => {},
                 _ => assert!(false),
             }
+            });
+        let test = Test::new();
+        block_on(async {
+            match test.f2().await {
+                Err(MyError::Interrupted(_)) => {},
+                _ => assert!(false),
+            }
+        });
+        let test = Test::new();
+        block_on(async {
+            assert_eq!(test.g().await, Ok(123));
+        });
+        let test = Test::new();
+        block_on(async {
+            assert_eq!(test.h().await, Err(AnotherError::new().into()));
         });
     }
 
     #[test]
     fn not_interrupted() {
-        let test = Test::new();
-        block_on(async {
-            assert_eq!(test.g().await, Ok(123));
-        });
     }
 }
