@@ -1,6 +1,6 @@
 [package]
 name = "tokio-interruptible-future"
-version = "0.10.2"
+version = "0.10.3"
 edition = "2021"
 description = "Easily interrupt async code in given check points. It's useful to interrupt threads/fibers."
 authors = ["Victor Porton"]
