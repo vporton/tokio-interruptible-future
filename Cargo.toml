@@ -1,6 +1,6 @@
 [package]
 name = "tokio-interruptible-future"
-version = "0.10.3"
+version = "0.10.4"
 edition = "2021"
 description = "Easily interrupt async code in given check points. It's useful to interrupt threads/fibers."
 authors = ["Victor Porton"]
@@ -11,7 +11,6 @@ repository = "https://github.com/vporton/tokio-interruptible-future"
 
 [dependencies]
 tokio = { version = "1.15", features = ["sync", "macros"] }
-futures = "*"
+futures = "0.3.19"
 
 [dev-dependencies]
-futures = "0.3.19"
