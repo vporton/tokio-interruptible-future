@@ -1,10 +1,11 @@
-#![feature(async_closure)]
-#![feature(explicit_generic_args_with_impl_trait)]
+// #![feature(async_closure)]
+// #![feature(explicit_generic_args_with_impl_trait)]
 
 /// Easily interrupt async code in given check points. It's useful to interrupt threads/fibers.
 /// TODO: Documentation comments.
 
 use std::{fmt, future::Future, sync::Arc};
+use futures::future::ready;
 
 use tokio::sync::Notify;
 
@@ -35,9 +36,9 @@ pub async fn interruptible<'a, T, E: From<InterruptError>>(
     }
 }
 
-pub async fn check_for_interrupt<E: From<InterruptError>>(notifier: Arc<Notify>) -> Result<(), E> {
-    //  interruptible::<(), E>(notifier, ready(Ok())).await // `E` cannot be sent between threads safely
-    interruptible(notifier, async || -> Result<(), E> { Ok(()) }()).await
+pub async fn check_for_interrupt<E: From<InterruptError> + Send>(notifier: Arc<Notify>) -> Result<(), E> {
+     interruptible(notifier, ready(Ok::<(), E>(()))).await // `E` cannot be sent between threads safely, if no `Send`
+    // interruptible(notifier, async || -> Result<(), E> { Ok(()) }()).await // works without Send but requires compiler directives
 }
 
 /// TODO: More tests.
