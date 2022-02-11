@@ -5,7 +5,6 @@
 /// TODO: Documentation comments.
 
 use std::{fmt, future::Future, sync::Arc};
-use futures::future::ready;
 
 use tokio::sync::Notify;
 
@@ -37,8 +36,8 @@ pub async fn interruptible<'a, T, E: From<InterruptError>>(
 }
 
 pub async fn check_for_interrupt<E: From<InterruptError> + Send>(notifier: Arc<Notify>) -> Result<(), E> {
-     interruptible(notifier, ready(Ok::<(), E>(()))).await // `E` cannot be sent between threads safely, if no `Send`
-    // interruptible(notifier, async || -> Result<(), E> { Ok(()) }()).await // works without Send but requires compiler directives
+    // interruptible(notifier, ready(Ok::<(), E>(()))).await // `E` cannot be sent between threads safely, if no `Send`
+    interruptible(notifier, (move || async move { Ok(()) })()).await // works without Send but requires compiler directives
 }
 
 /// TODO: More tests.
