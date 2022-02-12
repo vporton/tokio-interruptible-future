@@ -22,6 +22,20 @@ impl fmt::Display for InterruptError {
     }
 }
 
+/// You usually use `interruptible` instead.
+pub async fn interruptible_straight<T, E: From<InterruptError>>(
+    rx: Receiver<()>,
+    f: impl Future<Output=Result<T, E>>
+) -> Result<T, E>
+{
+    tokio::select!{
+        r = f => r,
+        _ = async { // shorten lock lifetime
+            let _ = rx.recv().await;
+        } => Err(InterruptError::new().into()),
+    }
+}
+
 pub async fn interruptible<T, E: From<InterruptError>>(
     rx: Receiver<()>,
     f: Arc<Mutex<dyn Future<Output=Result<T, E>> + Unpin>>
