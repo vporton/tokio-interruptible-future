@@ -38,6 +38,17 @@ pub async fn interruptible_straight<T, E: From<InterruptError>>(
 
 pub async fn interruptible<T, E: From<InterruptError>>(
     rx: Receiver<()>,
+    f: Arc<Mutex<dyn Future<Output=Result<T, E>> + Unpin>>
+) -> Result<T, E>
+{
+    let f = f.clone();
+    let mut f = f.lock().await;
+    let f = Box::pin(&mut *f);
+    interruptible_straight(rx, f).await
+}
+
+pub async fn interruptible_sendable<T, E: From<InterruptError>>(
+    rx: Receiver<()>,
     f: Arc<Mutex<dyn Future<Output=Result<T, E>> + Send + Unpin>>
 ) -> Result<T, E>
 {
