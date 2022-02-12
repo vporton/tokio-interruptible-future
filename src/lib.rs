@@ -36,7 +36,7 @@ pub async fn interruptible<T, E: From<InterruptError>>(
 pub async fn check_for_interrupt<E: From<InterruptError>>(
     rx: Receiver<()>,
 ) -> Result<(), E> {
-    interruptible(rx, async move { Ok(()) }).await // works without Send but requires compiler directives
+    interruptible(rx, async move { Ok(()) }).await
 }
 
 /// TODO: More tests.
