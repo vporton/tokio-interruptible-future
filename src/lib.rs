@@ -24,9 +24,9 @@ impl fmt::Display for InterruptError {
     }
 }
 
-pub async fn interruptible<'a, T, E: From<InterruptError>>(
+pub async fn interruptible<T, E: From<InterruptError>>(
     notifier: Arc<Notify>,
-    f: impl Future<Output = Result<T, E>> + 'a
+    f: impl Future<Output = Result<T, E>>
 ) -> Result<T, E>
 {
     tokio::select!{
