@@ -2,7 +2,9 @@
 /// TODO: Documentation comments.
 
 use std::{fmt, future::Future};
+use std::sync::Arc;
 use async_channel::Receiver;
+use tokio::sync::Mutex;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct InterruptError { }
@@ -22,9 +24,12 @@ impl fmt::Display for InterruptError {
 
 pub async fn interruptible<T, E: From<InterruptError>>(
     rx: Receiver<()>,
-    f: impl Future<Output=Result<T, E>>
+    f: Arc<Mutex<dyn Future<Output=Result<T, E>> + Unpin>>
 ) -> Result<T, E>
 {
+    let f = f.clone();
+    let mut f = f.lock().await;
+    let f = Box::pin(&mut *f);
     tokio::select!{
         r = f => r,
         _ = async { // shorten lock lifetime
@@ -36,14 +41,17 @@ pub async fn interruptible<T, E: From<InterruptError>>(
 pub async fn check_for_interrupt<E: From<InterruptError>>(
     rx: Receiver<()>,
 ) -> Result<(), E> {
-    interruptible(rx, async move { Ok(()) }).await
+    // TODO: Optimize.
+    interruptible(rx, Arc::new(Mutex::new(Box::pin(async move { Ok(()) })))).await
 }
 
 /// TODO: More tests.
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use async_channel::bounded;
     use futures::executor::block_on;
+    use tokio::sync::Mutex;
 
     use crate::{InterruptError, check_for_interrupt, interruptible};
 
@@ -80,35 +88,35 @@ mod tests {
             let (tx, rx) = bounded(1);
             tx.send(()).await.unwrap(); // In real code called from another fiber or another thread.
 
-            interruptible(rx.clone(), async move {
+            interruptible(rx.clone(), Arc::new(Mutex::new(Box::pin(async move {
                 loop {
                     check_for_interrupt::<MyError>(rx.clone()).await?;
                 }
-            }).await
+            })))).await
         }
         pub async fn f2(self) -> Result<(), MyError> {
             let (tx, rx) = bounded(1);
 
-            interruptible(rx.clone(), async move {
+            interruptible(rx.clone(), Arc::new(Mutex::new(Box::pin(async move {
                 loop {
                     tx.send(()).await.unwrap(); // In real code called from another fiber or another thread.
                     check_for_interrupt::<MyError>(rx.clone()).await?;
                 }
-            }).await
+            })))).await
         }
         pub async fn g(self) -> Result<u8, MyError> {
             let (_tx, rx) = bounded::<()>(1);
 
-            interruptible(rx, async move {
+            interruptible(rx, Arc::new(Mutex::new(Box::pin(async move {
                 Ok(123)
-            }).await
+            })))).await
         }
         pub async fn h(self) -> Result<u8, MyError> {
             let (_tx, rx) = bounded::<()>(1);
 
-            interruptible(rx, async move {
+            interruptible(rx, Arc::new(Mutex::new(Box::pin(async move {
                 Err(AnotherError::new().into())
-            }).await
+            })))).await
         }
     }
 
