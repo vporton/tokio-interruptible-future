@@ -37,7 +37,7 @@ pub async fn interruptible<'a, T, E: From<InterruptError>>(
 
 pub async fn check_for_interrupt<E: From<InterruptError>>(notifier: Arc<Notify>) -> Result<(), E> {
     // interruptible(notifier, ready(Ok::<(), E>(()))).await // `E` cannot be sent between threads safely, if no `Send`
-    interruptible(notifier, (move || async move { Ok(()) })()).await // works without Send but requires compiler directives
+    interruptible(notifier, async move { Ok(()) }).await // works without Send but requires compiler directives
 }
 
 /// TODO: More tests.
