@@ -44,19 +44,13 @@ pub async fn interruptible<T, E: From<InterruptError>>(
     let f = f.clone();
     let mut f = f.lock().await;
     let f = Box::pin(&mut *f);
-    tokio::select!{
-        r = f => r,
-        _ = async { // shorten lock lifetime
-            let _ = rx.recv().await;
-        } => Err(InterruptError::new().into()),
-    }
+    interruptible_straight(rx, f).await
 }
 
 pub async fn check_for_interrupt<E: From<InterruptError>>(
     rx: Receiver<()>,
 ) -> Result<(), E> {
-    // TODO: Optimize.
-    interruptible(rx, Arc::new(Mutex::new(Box::pin(async move { Ok(()) })))).await
+    interruptible_straight(rx, async move { Ok(()) }).await
 }
 
 /// TODO: More tests.
