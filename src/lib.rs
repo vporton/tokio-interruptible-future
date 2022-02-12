@@ -2,6 +2,7 @@
 /// TODO: Documentation comments.
 
 use std::{fmt, future::Future};
+use async_channel::Receiver;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct InterruptError { }
@@ -20,26 +21,28 @@ impl fmt::Display for InterruptError {
 }
 
 pub async fn interruptible<T, E: From<InterruptError>>(
-    notifier: &mut tokio::sync::broadcast::Receiver<()>,
-    f: impl Future<Output = Result<T, E>>
+    rx: Receiver<()>,
+    f: impl Future<Output=Result<T, E>>
 ) -> Result<T, E>
 {
     tokio::select!{
         r = f => r,
-        _ = notifier.recv() => Err(InterruptError::new().into()),
+        _ = async { // shorten lock lifetime
+            let _ = rx.recv().await;
+        } => Err(InterruptError::new().into()),
     }
 }
 
 pub async fn check_for_interrupt<E: From<InterruptError>>(
-    notifier: &mut tokio::sync::broadcast::Receiver<()>
+    rx: Receiver<()>,
 ) -> Result<(), E> {
-    interruptible(notifier, async move { Ok(()) }).await // works without Send but requires compiler directives
+    interruptible(rx, async move { Ok(()) }).await // works without Send but requires compiler directives
 }
 
 /// TODO: More tests.
 #[cfg(test)]
 mod tests {
-    use tokio::sync::broadcast::channel;
+    use async_channel::bounded;
     use futures::executor::block_on;
 
     use crate::{InterruptError, check_for_interrupt, interruptible};
@@ -74,38 +77,36 @@ mod tests {
             }
         }
         pub async fn f(self) -> Result<(), MyError> {
-            let (tx, mut rx) = channel(1);
-            let mut rx2 = tx.subscribe();
-            tx.send(()).unwrap(); // In real code called from another fiber or another thread.
+            let (tx, rx) = bounded(1);
+            tx.send(()).await.unwrap(); // In real code called from another fiber or another thread.
 
-            interruptible(&mut rx, async move {
+            interruptible(rx.clone(), async move {
                 loop {
-                    check_for_interrupt::<MyError>(&mut rx2).await?;
+                    check_for_interrupt::<MyError>(rx.clone()).await?;
                 }
             }).await
         }
         pub async fn f2(self) -> Result<(), MyError> {
-            let (tx, mut rx) = channel(1);
-            let mut rx2 = tx.subscribe();
+            let (tx, rx) = bounded(1);
 
-            interruptible(&mut rx, async move {
+            interruptible(rx.clone(), async move {
                 loop {
-                    tx.send(()).unwrap(); // In real code called from another fiber or another thread.
-                    check_for_interrupt::<MyError>(&mut rx2).await?;
+                    tx.send(()).await.unwrap(); // In real code called from another fiber or another thread.
+                    check_for_interrupt::<MyError>(rx.clone()).await?;
                 }
             }).await
         }
         pub async fn g(self) -> Result<u8, MyError> {
-            let (_tx, mut rx) = channel(1);
+            let (_tx, rx) = bounded::<()>(1);
 
-            interruptible(&mut rx, async move {
+            interruptible(rx, async move {
                 Ok(123)
             }).await
         }
         pub async fn h(self) -> Result<u8, MyError> {
-            let (_tx, mut rx) = channel(1);
+            let (_tx, rx) = bounded::<()>(1);
 
-            interruptible(&mut rx, async move {
+            interruptible(rx, async move {
                 Err(AnotherError::new().into())
             }).await
         }
