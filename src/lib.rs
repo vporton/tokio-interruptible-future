@@ -1,12 +1,7 @@
-// #![feature(async_closure)]
-// #![feature(explicit_generic_args_with_impl_trait)]
-
 /// Easily interrupt async code in given check points. It's useful to interrupt threads/fibers.
 /// TODO: Documentation comments.
 
-use std::{fmt, future::Future, sync::Arc};
-
-use tokio::sync::Notify;
+use std::{fmt, future::Future};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct InterruptError { }
@@ -25,26 +20,26 @@ impl fmt::Display for InterruptError {
 }
 
 pub async fn interruptible<T, E: From<InterruptError>>(
-    notifier: Arc<Notify>,
+    notifier: &mut tokio::sync::broadcast::Receiver<()>,
     f: impl Future<Output = Result<T, E>>
 ) -> Result<T, E>
 {
     tokio::select!{
         r = f => r,
-        _ = notifier.notified() => Err(InterruptError::new().into()),
+        _ = notifier.recv() => Err(InterruptError::new().into()),
     }
 }
 
-pub async fn check_for_interrupt<E: From<InterruptError>>(notifier: Arc<Notify>) -> Result<(), E> {
-    // interruptible(notifier, ready(Ok::<(), E>(()))).await // `E` cannot be sent between threads safely, if no `Send`
+pub async fn check_for_interrupt<E: From<InterruptError>>(
+    notifier: &mut tokio::sync::broadcast::Receiver<()>
+) -> Result<(), E> {
     interruptible(notifier, async move { Ok(()) }).await // works without Send but requires compiler directives
 }
 
 /// TODO: More tests.
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use tokio::sync::Notify;
+    use tokio::sync::broadcast::channel;
     use futures::executor::block_on;
 
     use crate::{InterruptError, check_for_interrupt, interruptible};
@@ -79,36 +74,38 @@ mod tests {
             }
         }
         pub async fn f(self) -> Result<(), MyError> {
-            let interrupt_notifier = Arc::new(Notify::new()); // Arc::new(Notify::new());
-            interrupt_notifier.notify_one(); // In real code called from another fiber or another thread.
+            let (tx, mut rx) = channel(1);
+            let mut rx2 = tx.subscribe();
+            tx.send(()).unwrap(); // In real code called from another fiber or another thread.
 
-            interruptible(interrupt_notifier.clone(), async move {
+            interruptible(&mut rx, async move {
                 loop {
-                    check_for_interrupt::<MyError>(interrupt_notifier.clone()).await?;
+                    check_for_interrupt::<MyError>(&mut rx2).await?;
                 }
             }).await
         }
         pub async fn f2(self) -> Result<(), MyError> {
-            let interrupt_notifier = Arc::new(Notify::new()); // Arc::new(Notify::new());
+            let (tx, mut rx) = channel(1);
+            let mut rx2 = tx.subscribe();
 
-            interruptible(interrupt_notifier.clone(), async move {
+            interruptible(&mut rx, async move {
                 loop {
-                    interrupt_notifier.clone().notify_one(); // In real code called from another fiber or another thread.
-                    check_for_interrupt::<MyError>(interrupt_notifier.clone()).await?;
+                    tx.send(()).unwrap(); // In real code called from another fiber or another thread.
+                    check_for_interrupt::<MyError>(&mut rx2).await?;
                 }
             }).await
         }
         pub async fn g(self) -> Result<u8, MyError> {
-            let interrupt_notifier = Arc::new(Notify::new());
+            let (_tx, mut rx) = channel(1);
 
-            interruptible(interrupt_notifier.clone(), async move {
+            interruptible(&mut rx, async move {
                 Ok(123)
             }).await
         }
         pub async fn h(self) -> Result<u8, MyError> {
-            let interrupt_notifier = Arc::new(Notify::new());
+            let (_tx, mut rx) = channel(1);
 
-            interruptible(interrupt_notifier.clone(), async move {
+            interruptible(&mut rx, async move {
                 Err(AnotherError::new().into())
             }).await
         }
@@ -138,9 +135,5 @@ mod tests {
         block_on(async {
             assert_eq!(test.h().await, Err(AnotherError::new().into()));
         });
-    }
-
-    #[test]
-    fn not_interrupted() {
     }
 }
