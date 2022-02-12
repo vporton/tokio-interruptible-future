@@ -67,12 +67,13 @@ pub async fn check_for_interrupt<E: From<InterruptError>>(
 /// TODO: More tests.
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
     use std::sync::Arc;
     use async_channel::bounded;
     use futures::executor::block_on;
     use tokio::sync::Mutex;
 
-    use crate::{InterruptError, check_for_interrupt, interruptible};
+    use crate::{InterruptError, check_for_interrupt, interruptible, interruptible_sendable};
 
     #[derive(Debug, PartialEq, Eq)]
     struct AnotherError { }
@@ -163,5 +164,15 @@ mod tests {
         block_on(async {
             assert_eq!(test.h().await, Err(AnotherError::new().into()));
         });
+    }
+
+    #[test]
+    fn check_interruptible_sendable() {
+        let (_tx, rx) = bounded::<()>(1);
+
+        // Check that `interruptible_sendable(...)` is a `Send` future.
+        let _: &(dyn Future<Output = Result<i32, InterruptError>> + Send) = &interruptible_sendable(rx, Arc::new(Mutex::new(Box::pin(async move {
+            Ok(123)
+        }))));
     }
 }
