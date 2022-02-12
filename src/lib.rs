@@ -38,7 +38,7 @@ pub async fn interruptible_straight<T, E: From<InterruptError>>(
 
 pub async fn interruptible<T, E: From<InterruptError>>(
     rx: Receiver<()>,
-    f: Arc<Mutex<dyn Future<Output=Result<T, E>> + Unpin>>
+    f: Arc<Mutex<dyn Future<Output=Result<T, E>> + Send + Unpin>>
 ) -> Result<T, E>
 {
     let f = f.clone();
