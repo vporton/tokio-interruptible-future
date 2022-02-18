@@ -1,6 +1,6 @@
 [package]
 name = "tokio-interruptible-future"
-version = "3.0.2"
+version = "3.0.3"
 edition = "2021"
 description = "Easily interrupt async code in given check points. It's useful to interrupt threads/fibers."
 authors = ["Victor Porton"]
@@ -10,7 +10,7 @@ repository = "https://github.com/vporton/tokio-interruptible-future"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.15", features = ["sync", "macros"] }
+tokio = { version = "1.16.1", features = ["sync", "macros"] }
 futures = "0.3.19"
 async-channel = "1.6.1"
 
