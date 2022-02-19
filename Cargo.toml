@@ -12,6 +12,5 @@ repository = "https://github.com/vporton/tokio-interruptible-future"
 [dependencies]
 tokio = { version = "1.16.1", features = ["sync", "macros"] }
 futures = "0.3.19"
-async-channel = "1.6.1"
 
 [dev-dependencies]

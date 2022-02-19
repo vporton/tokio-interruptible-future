@@ -3,7 +3,7 @@
 
 use std::{fmt, future::Future};
 use std::sync::Arc;
-use async_channel::Receiver;
+use tokio::sync::broadcast::error::{RecvError, SendError, TryRecvError};
 use tokio::sync::Mutex;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -22,12 +22,67 @@ impl fmt::Display for InterruptError {
     }
 }
 
-/// You usually use `interruptible` instead.
+/// tokio::sync::broadcast::Sender has `Receiver` not cloneable, creating the temptation to
+/// clone an `Arc` with `Receiver` inside, what would lead to loss of messages.
+///
+/// So, this instead (make it a separate library?)
+pub fn broadcast<'a, T: Clone>(capacity: usize) -> (Sender<T>, Receiver<T>) {
+    let (tx, rx) = tokio::sync::broadcast::channel(capacity);
+    let tx = Arc::new(Mutex::new(tx));
+    return (
+        Sender {
+            tx: tx.clone(),
+        },
+        Receiver {
+            tx: tx.clone(),
+            rx
+        }
+    )
+}
+
+pub struct Sender<T> {
+    tx: Arc<Mutex<tokio::sync::broadcast::Sender<T>>>,
+}
+
+pub struct Receiver<T> {
+    tx: Arc<Mutex<tokio::sync::broadcast::Sender<T>>>,
+    rx: tokio::sync::broadcast::Receiver<T>,
+}
+
+impl<T> Sender<T> {
+    pub async fn receiver_count(&self) -> usize {
+        self.tx.lock().await.receiver_count()
+    }
+    pub async fn send(&self, value: T) -> Result<usize, SendError<T>> {
+        self.tx.lock().await.send(value)
+    }
+}
+
+impl<T: Clone> Receiver<T> {
+    pub async fn recv(&mut self) -> Result<T, RecvError> {
+        self.rx.recv().await
+    }
+    pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
+        self.rx.try_recv()
+    }
+    pub async fn receiver_count(&self) -> usize {
+        self.tx.lock().await.receiver_count()
+    }
+    pub async fn clone(&self) -> Self {
+        Self {
+            tx: self.tx.clone(),
+            rx: self.tx.lock().await.subscribe(),
+        }
+    }
+}
+
+/// You usually use `interruptible` or `interruptible_sendable` instead.
 pub async fn interruptible_straight<T, E: From<InterruptError>>(
     rx: Receiver<()>,
     f: impl Future<Output=Result<T, E>>
 ) -> Result<T, E>
 {
+    let mut rx = rx;
     tokio::select!{
         r = f => r,
         _ = async { // shorten lock lifetime
@@ -69,11 +124,10 @@ pub async fn check_for_interrupt<E: From<InterruptError>>(
 mod tests {
     use std::future::Future;
     use std::sync::Arc;
-    use async_channel::bounded;
     use futures::executor::block_on;
     use tokio::sync::Mutex;
 
-    use crate::{InterruptError, check_for_interrupt, interruptible, interruptible_sendable};
+    use crate::{InterruptError, check_for_interrupt, interruptible, interruptible_sendable, broadcast};
 
     #[derive(Debug, PartialEq, Eq)]
     struct AnotherError { }
@@ -105,34 +159,34 @@ mod tests {
             }
         }
         pub async fn f(self) -> Result<(), MyError> {
-            let (tx, rx) = bounded(1);
+            let (tx, rx) = broadcast(1);
             tx.send(()).await.unwrap(); // In real code called from another fiber or another thread.
 
-            interruptible(rx.clone(), Arc::new(Mutex::new(Box::pin(async move {
+            interruptible(rx.clone().await, Arc::new(Mutex::new(Box::pin(async move {
                 loop {
-                    check_for_interrupt::<MyError>(rx.clone()).await?;
+                    check_for_interrupt::<MyError>(rx.clone().await).await?;
                 }
             })))).await
         }
         pub async fn f2(self) -> Result<(), MyError> {
-            let (tx, rx) = bounded(1);
+            let (tx, rx) = broadcast(1);
 
-            interruptible(rx.clone(), Arc::new(Mutex::new(Box::pin(async move {
+            interruptible(rx.clone().await, Arc::new(Mutex::new(Box::pin(async move {
                 loop {
                     tx.send(()).await.unwrap(); // In real code called from another fiber or another thread.
-                    check_for_interrupt::<MyError>(rx.clone()).await?;
+                    check_for_interrupt::<MyError>(rx.clone().await).await?;
                 }
             })))).await
         }
         pub async fn g(self) -> Result<u8, MyError> {
-            let (_tx, rx) = bounded::<()>(1);
+            let (tx, rx) = broadcast::<()>(1);
 
             interruptible(rx, Arc::new(Mutex::new(Box::pin(async move {
                 Ok(123)
             })))).await
         }
         pub async fn h(self) -> Result<u8, MyError> {
-            let (_tx, rx) = bounded::<()>(1);
+            let (tx, rx) = broadcast::<()>(1);
 
             interruptible(rx, Arc::new(Mutex::new(Box::pin(async move {
                 Err(AnotherError::new().into())
@@ -168,7 +222,7 @@ mod tests {
 
     #[test]
     fn check_interruptible_sendable() {
-        let (_tx, rx) = bounded::<()>(1);
+        let (tx, rx) = broadcast::<()>(1);
 
         // Check that `interruptible_sendable(...)` is a `Send` future.
         let _: &(dyn Future<Output = Result<i32, InterruptError>> + Send) = &interruptible_sendable(rx, Arc::new(Mutex::new(Box::pin(async move {
