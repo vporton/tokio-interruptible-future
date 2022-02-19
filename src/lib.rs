@@ -112,12 +112,6 @@ pub async fn interruptible_sendable<T, E: From<InterruptError>>(
     interruptible_straight(rx, f).await
 }
 
-pub async fn check_for_interrupt<E: From<InterruptError>>(
-    rx: Receiver<()>,
-) -> Result<(), E> {
-    interruptible_straight(rx, async move { Ok(()) }).await
-}
-
 /// TODO: More tests.
 #[cfg(test)]
 mod tests {
@@ -126,7 +120,7 @@ mod tests {
     use futures::executor::block_on;
     use tokio::sync::Mutex;
 
-    use crate::{InterruptError, check_for_interrupt, interruptible, interruptible_sendable, broadcast};
+    use crate::{InterruptError, interruptible, interruptible_sendable, broadcast};
 
     #[derive(Debug, PartialEq, Eq)]
     struct AnotherError { }
@@ -157,36 +151,15 @@ mod tests {
             Self {
             }
         }
-        pub async fn f(self) -> Result<(), MyError> {
-            let (tx, rx) = broadcast(1);
-            let rx2 = rx.clone().await;
-            tx.send(()).await.unwrap(); // In real code called from another fiber or another thread.
-
-            interruptible(rx2.clone().await, Arc::new(Mutex::new(Box::pin(async move {
-                loop {
-                    check_for_interrupt::<MyError>(rx2.clone().await).await?;
-                }
-            })))).await
-        }
-        pub async fn f2(self) -> Result<(), MyError> {
-            let (tx, rx) = broadcast(1);
-
-            interruptible(rx.clone().await, Arc::new(Mutex::new(Box::pin(async move {
-                loop {
-                    tx.send(()).await.unwrap(); // In real code called from another fiber or another thread.
-                    check_for_interrupt::<MyError>(rx.clone().await).await?;
-                }
-            })))).await
-        }
         pub async fn g(self) -> Result<u8, MyError> {
-            let (tx, rx) = broadcast::<()>(1);
+            let (_tx, rx) = broadcast::<()>(1);
 
             interruptible(rx, Arc::new(Mutex::new(Box::pin(async move {
                 Ok(123)
             })))).await
         }
         pub async fn h(self) -> Result<u8, MyError> {
-            let (tx, rx) = broadcast::<()>(1);
+            let (_tx, rx) = broadcast::<()>(1);
 
             interruptible(rx, Arc::new(Mutex::new(Box::pin(async move {
                 Err(AnotherError::new().into())
@@ -198,32 +171,17 @@ mod tests {
     fn interrupted() {
         let test = Test::new();
         block_on(async {
-            match test.f().await {
-                Err(MyError::Interrupted(_)) => {},
-                _ => assert!(false),
-            }
+            assert_eq!(test.g().await, Ok(123));
         });
-        // FIXME: Uncomment:
-        // let test = Test::new();
-        // block_on(async {
-        //     match test.f2().await {
-        //         Err(MyError::Interrupted(_)) => {},
-        //         _ => assert!(false),
-        //     }
-        // });
-        // let test = Test::new();
-        // block_on(async {
-        //     assert_eq!(test.g().await, Ok(123));
-        // });
-        // let test = Test::new();
-        // block_on(async {
-        //     assert_eq!(test.h().await, Err(AnotherError::new().into()));
-        // });
+        let test = Test::new();
+        block_on(async {
+            assert_eq!(test.h().await, Err(AnotherError::new().into()));
+        });
     }
 
     #[test]
     fn check_interruptible_sendable() {
-        let (tx, rx) = broadcast::<()>(1);
+        let (_tx, rx) = broadcast::<()>(1);
 
         // Check that `interruptible_sendable(...)` is a `Send` future.
         let _: &(dyn Future<Output = Result<i32, InterruptError>> + Send) = &interruptible_sendable(rx, Arc::new(Mutex::new(Box::pin(async move {
