@@ -13,6 +13,8 @@ impl InterruptError {
     }
 }
 
+impl std::error::Error for InterruptError { }
+
 impl fmt::Display for InterruptError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Async fiber interrupted.")
