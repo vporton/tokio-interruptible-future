@@ -10,7 +10,7 @@ repository = "https://github.com/vporton/tokio-interruptible-future"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.17.0", features = ["sync", "macros"] }
+tokio = { version = "1.20.0", features = ["sync", "macros"] }
 futures = "0.3.19"
 async-channel = "1.6.1"
 
